@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Fabsbags/starreview",
+  "title": "StarReview",
+  "description": "Drafts Google & TripAdvisor review replies; agents can never post themselves. Free rate check.",
+  "version": "0.5.1",
+  "websiteUrl": "https://www.starreview.ch/en/agents",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.starreview.ch/",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Optional for the public discovery tools (get_service_info, search_business, check_response_rate). For the business tools, connect via OAuth (recommended, plug-and-play; discovered from the endpoint's .well-known/oauth-protected-resource) OR send a per-business bearer token (format: sragt_...) as: Authorization: Bearer sragt_...",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

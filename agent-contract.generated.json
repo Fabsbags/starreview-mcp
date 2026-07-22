@@ -1,0 +1,282 @@
+{
+  "$comment": "GENERATED FILE — do not hand-edit. Source: config/agentTools.js. Run npm run write:agent-contract.",
+  "serverName": "starreview",
+  "serverVersion": "0.5.1",
+  "resource": "https://mcp.starreview.ch",
+  "endpoint": "https://mcp.starreview.ch/",
+  "transport": "streamable-http",
+  "stateless": true,
+  "allowedMethods": [
+    "POST",
+    "OPTIONS"
+  ],
+  "discovery": {
+    "protectedResourceMetadata": "https://mcp.starreview.ch/.well-known/oauth-protected-resource",
+    "authorizationServerMetadata": "https://mcp.starreview.ch/.well-known/oauth-authorization-server",
+    "serviceCard": "https://mcp.starreview.ch/.well-known/mcp.json"
+  },
+  "authenticatedTools": [
+    {
+      "name": "list_locations",
+      "title": "List connected locations",
+      "description": "List every location connected to this business across its review platforms (Google Business Profile, TripAdvisor).",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "businessId": {
+            "type": "string",
+            "description": "OAuth only: which of your businesses to act on. Omit it and, if you manage more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored when authenticating with a per-business token, where the token pins the business."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_unanswered_reviews",
+      "title": "List unanswered reviews",
+      "description": "List reviews awaiting a reply for this business across all connected platforms (Google and TripAdvisor), optionally scoped to one location. Each review includes its provider.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "businessId": {
+            "type": "string",
+            "description": "OAuth only: which of your businesses to act on. Omit it and, if you manage more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored when authenticating with a per-business token, where the token pins the business."
+          },
+          "locationId": {
+            "type": "string",
+            "description": "Optional location id to scope the list to."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Max reviews to return (default 20)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_review_context",
+      "title": "Get review context",
+      "description": "Get full context for a single review: text, business, language, provider (google or tripadvisor), and every drafted reply variant.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reviewId": {
+            "type": "string",
+            "description": "The review id to load."
+          }
+        },
+        "required": [
+          "reviewId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "draft_reply",
+      "title": "Draft AI reply variants",
+      "description": "Generate AI reply variants for a pending review (Google or TripAdvisor) and save them as drafts awaiting human approval.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reviewId": {
+            "type": "string",
+            "description": "The pending review id to draft a reply for."
+          }
+        },
+        "required": [
+          "reviewId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "submit_reply_for_approval",
+      "title": "Submit a drafted reply for approval",
+      "description": "Commit one of StarReview's drafted variants (from `draft_reply`) into the owner's approval queue, optionally editing its text. For Google, an unedited reply on a consented, positive review may be scheduled and StarReview posts it from its own infrastructure. For TripAdvisor (no reply API), an approved reply comes back as `awaitingManualPost` with a `platformListingUrl` deep-link the owner posts through in TripAdvisor's own portal; StarReview never posts to TripAdvisor. To submit the agent's OWN reply text instead (no prior draft), use `submit_own_reply`.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reviewId": {
+            "type": "string",
+            "description": "The review id the reply is being submitted for."
+          },
+          "variant": {
+            "type": "integer",
+            "description": "Which drafted variant number (from draft_reply) to submit. Required."
+          },
+          "finalText": {
+            "type": "string",
+            "description": "Optional: overrides the chosen draft variant's text with this edited version."
+          },
+          "preferredPostAt": {
+            "type": "string",
+            "description": "Optional ISO 8601 timestamp: StarReview will not post the reply before this time. StarReview's own scheduler/poster still performs the actual publish."
+          }
+        },
+        "required": [
+          "reviewId",
+          "variant"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "submit_own_reply",
+      "title": "Submit your own reply for approval",
+      "description": "Submit the agent's OWN reply text into the owner's approval queue, with no StarReview draft (no LLM call). Always requires human approval and NEVER auto-schedules — even on a positive, consented business. StarReview publishes every reply from its own infrastructure after the owner approves; the agent only drafts and submits. To commit one of StarReview's own drafts instead, use `submit_reply_for_approval`.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reviewId": {
+            "type": "string",
+            "description": "The review id the reply is being submitted for."
+          },
+          "finalText": {
+            "type": "string",
+            "description": "The agent's own reply text. This IS the reply. Required."
+          },
+          "preferredPostAt": {
+            "type": "string",
+            "description": "Optional ISO 8601 timestamp: StarReview will not post the reply before this time. StarReview's own scheduler/poster still performs the actual publish."
+          }
+        },
+        "required": [
+          "reviewId",
+          "finalText"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "publicTools": [
+    {
+      "name": "get_service_info",
+      "title": "About StarReview",
+      "description": "What StarReview does, pricing (CHF 0.50 per published reply, drafting is free), how a business signs up, and how an agent authenticates via OAuth.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_business",
+      "title": "Find a business on Google Maps",
+      "description": "Find a business on Google Maps by name, optionally with its city. Returns up to 5 candidates; feed the chosen candidate's placeId to check_response_rate.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 120,
+            "description": "Business name, optionally with city, e.g. \"Restaurant Adler Zuerich\"."
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "de",
+              "fr",
+              "it",
+              "en"
+            ],
+            "description": "Optional result language (default de)."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "check_response_rate",
+      "title": "Check review response rate",
+      "description": "Free check: what share of this business's recent Google reviews received an owner reply, benchmarked against up to two nearby competitors. placeId must come from a recent search_business call. Results are cached for about 30 days; do not repeat the call for the same place.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "placeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "A placeId returned by search_business."
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "de",
+              "fr",
+              "it",
+              "en"
+            ],
+            "description": "Optional locale for the check (default de)."
+          }
+        },
+        "required": [
+          "placeId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "publicDailyCapsPerIp": {
+    "get_service_info": null,
+    "search_business": 12,
+    "check_response_rate": 5
+  },
+  "deniedErrorCodes": [
+    "already_processed",
+    "business_not_connected",
+    "forbidden",
+    "free_quota_exhausted",
+    "not_editable",
+    "posting_paywall",
+    "review_not_pending"
+  ]
+}
