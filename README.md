@@ -20,6 +20,25 @@ Streamable HTTP MCP, stateless (`GET`/`DELETE` return 405). Every request must s
 Accept: application/json, text/event-stream
 ```
 
+## Tools
+
+Three free discovery tools, no credential needed (`POST https://mcp.starreview.ch/public`):
+
+- `get_service_info`: what StarReview does, pricing, and how to connect
+- `search_business`: find a business on Google Maps by name, returns up to 5 candidates
+- `check_response_rate`: what share of a business's recent Google reviews got an owner reply, benchmarked against two nearby competitors
+
+Six business tools, authenticated via OAuth (main endpoint):
+
+- `list_locations`: the locations of the business you act for, across Google and TripAdvisor
+- `list_unanswered_reviews`: Google and TripAdvisor reviews still waiting for a reply, each tagged with its platform
+- `get_review_context`: the full review (including its platform) plus any existing drafts
+- `draft_reply`: generate a reply in the business's voice
+- `submit_reply_for_approval`: put a StarReview draft into the owner's approval queue, with optional edits and an optional preferred post time
+- `submit_own_reply`: put the agent's own reply text into the owner's approval queue
+
+There is no publish tool: an agent can never post a reply itself. How publishing is governed is described under "What an agent cannot do" below.
+
 ## Connect with OAuth (default, self-serve)
 
 StarReview is an OAuth 2.1 authorization server with dynamic client registration and PKCE. From Claude or any MCP client that supports OAuth: add the endpoint as a connector and sign in with the StarReview account that owns the business. The owner approves once on a consent screen; there is no token to copy or manage.
