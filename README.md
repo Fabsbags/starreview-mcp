@@ -43,6 +43,8 @@ There is no publish tool: an agent can never post a reply itself. How publishing
 
 StarReview is an OAuth 2.1 authorization server with dynamic client registration and PKCE. From Claude or any MCP client that supports OAuth: add the endpoint as a connector and sign in with the StarReview account that owns the business. The owner approves once on a consent screen; there is no token to copy or manage.
 
+Claude tip: if the tool list still looks empty right after you approve, reload the Claude tab — the connectors panel does not always re-fetch tools after the sign-in window closes.
+
 For clients that wire the flow themselves, discovery is standard RFC 9728:
 
 ```
