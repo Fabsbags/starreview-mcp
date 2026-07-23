@@ -1,7 +1,7 @@
 {
   "$comment": "GENERATED FILE — do not hand-edit. Source: config/agentTools.js. Run npm run write:agent-contract.",
   "serverName": "starreview",
-  "serverVersion": "0.5.1",
+  "serverVersion": "0.5.2",
   "resource": "https://mcp.starreview.ch",
   "endpoint": "https://mcp.starreview.ch/",
   "transport": "streamable-http",
