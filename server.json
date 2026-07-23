@@ -12,8 +12,8 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Optional for the public discovery tools (get_service_info, search_business, check_response_rate). For the business tools, connect via OAuth (recommended, plug-and-play; discovered from the endpoint's .well-known/oauth-protected-resource) OR send a per-business bearer token (format: sragt_...) as: Authorization: Bearer sragt_...",
-          "isRequired": false,
+          "description": "Required at this endpoint. Connect via OAuth (recommended, plug-and-play; discovered from the endpoint's .well-known/oauth-protected-resource) OR send a per-business bearer token (format: sragt_...) as: Authorization: Bearer sragt_... The free discovery tools (get_service_info, search_business, check_response_rate) need no credential but live at a separate URL: POST https://mcp.starreview.ch/public",
+          "isRequired": true,
           "isSecret": true
         }
       ]
