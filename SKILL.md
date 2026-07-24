@@ -15,11 +15,13 @@ Endpoint: `POST https://mcp.starreview.ch/` (streamable HTTP, stateless; `GET`/`
 
 This is plain OAuth 2.1 with opaque access tokens - deliberately NOT OpenID Connect. Do not request `openid`, do not expect an `id_token`, `userinfo`, or JWKS.
 
-Legacy path: a per-business bearer token (`sragt_...`) in `Authorization: Bearer`. If you hold one, use it; the token pins the business and none of the multi-business handling below applies.
+**API-key path (self-serve):** the owner can create an account-wide agent key in their StarReview settings and give it to you (commonly as the `STARREVIEW_API_KEY` environment variable). Send it as `Authorization: Bearer sragt_...`. It identifies the OWNER, so the multi-business picker below applies exactly as in OAuth mode.
+
+Legacy path: an admin-issued per-business bearer token (also `sragt_...`). If you hold one of these, the token pins the business and none of the multi-business handling below applies.
 
 ## The toolset depends on your credential
 
-The six business tools live at the main endpoint and require a credential: call it without one and you get a 401 challenge, not a tool list. The three free discovery tools (`get_service_info`, `search_business`, `check_response_rate`) live at `POST https://mcp.starreview.ch/public`, which needs no credential at all. The two sets are disjoint. The free `check_response_rate` result is cached ~30 days - never repeat it for the same place.
+The seven business tools live at the main endpoint and require a credential: call it without one and you get a 401 challenge, not a tool list. The three free discovery tools (`get_service_info`, `search_business`, `check_response_rate`) live at `POST https://mcp.starreview.ch/public`, which needs no credential at all. The two sets are disjoint. The free `check_response_rate` result is cached ~30 days - never repeat it for the same place.
 
 ## Result envelope: parse twice
 
@@ -41,9 +43,14 @@ An OAuth session identifies an OWNER, who may manage several businesses. Call `l
 
 Check for this shape (`businesses` + `hint`) before treating any response as the answer. Re-call with `businessId` set. Tools keyed on a `reviewId` (`get_review_context`, `draft_reply`, `submit_reply_for_approval`, `submit_own_reply`) never return a picker - the review determines the business.
 
+## Platforms are open-ended
+
+Every review carries a `provider` field (`google`, `tripadvisor`, ...). The value set GROWS as StarReview activates more platforms - never hardcode it, never reject an unknown value. What differs per platform is only the post-submit outcome, and that is always signaled per response (`autoScheduled` / approval queue / `awaitingManualPost` + `platformListingUrl`), never by the platform name. `list_unanswered_reviews` accepts an optional `provider` filter; an unknown slug returns an empty list.
+
 ## Workflow
 
-1. `list_unanswered_reviews` (optionally per `locationId`, `limit` max 50). Each review carries its `provider` (`google` or `tripadvisor`).
+0. Optional `get_review_stats` (optionally per `locationId`, `days` for a trailing window) for a read-only KPI summary: totals, average rating, response rate, pending count, backlog, response speed on negatives, and a per-provider breakdown. Use it to report "how are my reviews doing" - it never changes anything.
+1. `list_unanswered_reviews` (optionally per `locationId`, `provider`, `limit` max 50). Each review carries its `provider`.
 2. `get_review_context` for the full text, language, and any existing draft variants.
 3. Either `draft_reply` (StarReview generates variants in the business's voice, saved as drafts) then `submit_reply_for_approval` with the chosen `variant` (optionally `finalText` to edit it), OR `submit_own_reply` with your own `finalText` (no StarReview draft; ALWAYS requires human approval, never auto-schedules).
 4. Optional `preferredPostAt` (ISO 8601): StarReview will not post before that time.
@@ -93,3 +100,7 @@ Authenticated: 20 tool calls/min per credential; `draft_reply` ~25/day. Public: 
 - An agent cannot publish to Google: structural - no publish tool exists.
 - An unedited StarReview draft on a positive review at a business whose owner has standing auto-publish consent may schedule without a further human click; that rides the owner's own prior decision. `submit_own_reply` never takes that path.
 - Negative and sensitive reviews always wait for a human, and every draft passes a sentiment check.
+
+## Compatibility promise
+
+Contract changes are additive-only: new tools, new optional arguments, new response fields, and new `provider` values may appear in any minor version; existing tools are never removed and existing fields never change meaning without a MAJOR version bump. An agent written against this document keeps working.

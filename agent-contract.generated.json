@@ -1,7 +1,7 @@
 {
   "$comment": "GENERATED FILE — do not hand-edit. Source: config/agentTools.js. Run npm run write:agent-contract.",
   "serverName": "starreview",
-  "serverVersion": "0.5.2",
+  "serverVersion": "0.6.0",
   "resource": "https://mcp.starreview.ch",
   "endpoint": "https://mcp.starreview.ch/",
   "transport": "streamable-http",
@@ -38,7 +38,7 @@
     {
       "name": "list_unanswered_reviews",
       "title": "List unanswered reviews",
-      "description": "List reviews awaiting a reply for this business across all connected platforms (Google and TripAdvisor), optionally scoped to one location. Each review includes its provider.",
+      "description": "List reviews awaiting a reply for this business across all connected platforms, optionally scoped to one location and/or one provider. Each review includes its provider. Provider values are open-ended (e.g. google, tripadvisor; more appear as platforms are connected) — never hardcode the list.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -54,11 +54,45 @@
             "type": "string",
             "description": "Optional location id to scope the list to."
           },
+          "provider": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Optional provider slug to scope the list to (e.g. \"google\", \"tripadvisor\"). Unknown values return an empty list."
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,
             "maximum": 50,
             "description": "Max reviews to return (default 20)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_review_stats",
+      "title": "Get review statistics",
+      "description": "Read-only review KPIs for this business: totals, average rating, response rate, pending count, backlog, response speed on negative reviews, and a per-provider breakdown. Optionally scoped to one location and/or a trailing window of days (omit days for all-time). Provider keys in the breakdown are open-ended — new platforms appear automatically.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "businessId": {
+            "type": "string",
+            "description": "OAuth only: which of your businesses to act on. Omit it and, if you manage more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored when authenticating with a per-business token, where the token pins the business."
+          },
+          "locationId": {
+            "type": "string",
+            "description": "Optional location id to scope the stats to."
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3650,
+            "description": "Optional trailing window in days (e.g. 30). Omit for all-time."
           }
         },
         "additionalProperties": false

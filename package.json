@@ -1,0 +1,36 @@
+{
+  "name": "@starreview/mcp",
+  "version": "0.6.0",
+  "description": "StarReview hosted MCP server for AI agents: draft and submit Google & TripAdvisor review replies for local businesses; agents can never post themselves - publishing stays under the owner's control. Ships the connection README and a drop-in agent skill (SKILL.md).",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-reviews",
+    "tripadvisor",
+    "google-business-profile",
+    "review-management",
+    "ai-agents",
+    "oauth",
+    "skill",
+    "starreview"
+  ],
+  "homepage": "https://www.starreview.ch/en/agents",
+  "bugs": {
+    "url": "https://www.starreview.ch/en/agents"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fabsbags/starreview-mcp.git"
+  },
+  "license": "MIT",
+  "author": "StarReview",
+  "files": [
+    "README.md",
+    "SKILL.md",
+    "server.json",
+    "agent-contract.generated.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -3,7 +3,7 @@
   "name": "io.github.Fabsbags/starreview",
   "title": "StarReview",
   "description": "Drafts Google & TripAdvisor review replies; agents can never post themselves. Free rate check.",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "websiteUrl": "https://www.starreview.ch/en/agents",
   "remotes": [
     {

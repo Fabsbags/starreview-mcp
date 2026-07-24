@@ -28,10 +28,11 @@ Three free discovery tools, no credential needed (`POST https://mcp.starreview.c
 - `search_business`: find a business on Google Maps by name, returns up to 5 candidates
 - `check_response_rate`: what share of a business's recent Google reviews got an owner reply, benchmarked against two nearby competitors
 
-Six business tools, authenticated via OAuth (main endpoint):
+Seven business tools, authenticated via OAuth or an owner-issued agent key (main endpoint):
 
-- `list_locations`: the locations of the business you act for, across Google and TripAdvisor
-- `list_unanswered_reviews`: Google and TripAdvisor reviews still waiting for a reply, each tagged with its platform
+- `list_locations`: the locations of the business you act for, across its connected platforms
+- `list_unanswered_reviews`: reviews still waiting for a reply, each tagged with its platform; optional `provider` filter
+- `get_review_stats`: read-only KPIs — totals, average rating, response rate, pending, backlog, speed on negatives, per-platform breakdown
 - `get_review_context`: the full review (including its platform) plus any existing drafts
 - `draft_reply`: generate a reply in the business's voice
 - `submit_reply_for_approval`: put a StarReview draft into the owner's approval queue, with optional edits and an optional preferred post time
@@ -53,7 +54,11 @@ https://mcp.starreview.ch/.well-known/oauth-protected-resource
 
 A credential-less request answers `401` with a `WWW-Authenticate` header pointing at that same document, including the scopes to request. Add `offline_access` to your scope request if you want a refresh token. Note: this is plain OAuth 2.1 with opaque access tokens, deliberately not OpenID Connect — there is no `id_token`, no `userinfo`, no JWKS.
 
-Per-business bearer tokens (`sragt_...`, sent as `Authorization: Bearer`) still authenticate as a legacy path for existing integrations; new integrations should use OAuth.
+## Connect with an agent key (CLI, n8n, headless agents)
+
+Owners can create an account-wide agent key in their StarReview settings and hand it to their agent — commonly as the `STARREVIEW_API_KEY` environment variable, sent as `Authorization: Bearer sragt_...`. The key identifies the owner (all their businesses; the multi-business picker applies) and can be revoked in settings at any time. Creating a key shows the same consent summary as the OAuth screen: the agent drafts and submits, and can never publish.
+
+Admin-issued per-business bearer tokens (also `sragt_...`) still authenticate as a legacy path for existing integrations.
 
 ## No credential? Start here
 
@@ -81,12 +86,15 @@ Public tools are rate-limited per IP, results are cached for about 30 days (do n
 
 ## What an authenticated agent can do
 
-- `list_locations`: the locations of the business you act for, across Google and TripAdvisor
-- `list_unanswered_reviews`: Google and TripAdvisor reviews still waiting for a reply, each tagged with its platform
+- `list_locations`: the locations of the business you act for, across its connected platforms
+- `list_unanswered_reviews`: reviews still waiting for a reply, each tagged with its platform; optional `provider` filter
+- `get_review_stats`: read-only KPIs — totals, average rating, response rate, pending, backlog, speed on negatives, per-platform breakdown (optionally windowed by `days`)
 - `get_review_context`: the full review (including its platform) plus any existing drafts
 - `draft_reply`: generate a reply in the business's voice
 - `submit_reply_for_approval`: put one of StarReview's drafted variants into the owner's approval queue, optionally editing its text, with an optional preferred post time. For a TripAdvisor review, an approved reply comes back with a link the owner posts through
 - `submit_own_reply`: put your agent's OWN reply text into the owner's approval queue. Always requires human approval and never auto-schedules.
+
+Platform values are open-ended: new platforms appear as StarReview activates them, tagged by the same `provider` field, with the post-submit outcome always signaled per response. Contract changes are additive-only (see `SKILL.md`, "Compatibility promise").
 
 If the signed-in owner manages more than one business, calls without a `businessId` return a business picker instead of doing the work — see `SKILL.md` for the exact payload and how to answer it.
 
