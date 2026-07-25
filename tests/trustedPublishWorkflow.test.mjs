@@ -40,7 +40,7 @@ test('gives OIDC only to the artifact-only publish job', () => {
   assert.ok(!publish.includes('npm view'));
   assert.ok(publish.includes('sha256sum --check'));
   assert.ok(publish.includes(
-    'npm publish "candidate/$MCP_FILENAME" --access public --provenance --ignore-scripts',
+    'npm publish "./candidate/$MCP_FILENAME" --access public --provenance --ignore-scripts',
   ));
 });
 

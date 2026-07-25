@@ -258,7 +258,7 @@ jobs:
       - name: Publish exact verified tarball with provenance
         env:
           MCP_FILENAME: ${{ needs.candidate.outputs.filename }}
-        run: npm publish "candidate/$MCP_FILENAME" --access public --provenance --ignore-scripts
+        run: npm publish "./candidate/$MCP_FILENAME" --access public --provenance --ignore-scripts
 
   verify_registry:
     needs:
