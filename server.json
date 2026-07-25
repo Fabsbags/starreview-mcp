@@ -3,7 +3,7 @@
   "name": "io.github.Fabsbags/starreview",
   "title": "StarReview",
   "description": "Drafts Google & TripAdvisor review replies; agents can never post themselves. Free rate check.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "websiteUrl": "https://www.starreview.ch/en/agents",
   "remotes": [
     {
@@ -12,7 +12,7 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Required at this endpoint. Connect via OAuth (recommended, plug-and-play; discovered from the endpoint's .well-known/oauth-protected-resource) OR send a per-business bearer token (format: sragt_...) as: Authorization: Bearer sragt_... The free discovery tools (get_service_info, search_business, check_response_rate) need no credential but live at a separate URL: POST https://mcp.starreview.ch/public",
+          "description": "Required at this endpoint. Connect via OAuth (recommended, plug-and-play; discovered from the endpoint's .well-known/oauth-protected-resource) OR send an sragt_ bearer key as Authorization: Bearer sragt_.... Owner-created self-service keys are account-wide and use the multi-business picker; legacy/admin per-business credentials may pin one business. The free discovery tools (get_service_info, search_business, check_response_rate) need no credential but live at a separate URL: POST https://mcp.starreview.ch/public",
           "isRequired": true,
           "isSecret": true
         }

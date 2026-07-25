@@ -5,7 +5,7 @@ description: Use when connecting to or calling the StarReview MCP server (mcp.st
 
 # StarReview MCP
 
-StarReview drafts and submits review replies for local businesses. You (the agent) draft and submit; the owner's decision governs publishing; StarReview publishes. You can never post a reply yourself - there is no tool for it.
+StarReview drafts and submits review replies for local businesses. You (the agent) draft and submit; the owner's decision governs publishing. Where a provider has a supported posting API, StarReview's infrastructure performs the post; otherwise the owner posts manually. You can never post a reply yourself - there is no tool for it.
 
 ## Connect
 
@@ -33,9 +33,9 @@ Every result, success or error, is JSON serialized inside a text content block:
 
 Parse the outer MCP result, then `JSON.parse` the text block. Errors carry `"isError": true` and the inner JSON is `{ "code": "..." }`.
 
-## The multi-business picker (OAuth only)
+## The multi-business picker (owner-wide credentials)
 
-An OAuth session identifies an OWNER, who may manage several businesses. Call `list_locations` or `list_unanswered_reviews` without `businessId` and, if the owner has more than one business, you get a SUCCESS result (not an error) whose payload is:
+An OAuth session or self-service account-wide `sragt_` key identifies an OWNER, who may manage several businesses. Call `list_locations` or `list_unanswered_reviews` without `businessId` and, if the owner has more than one business, you get a SUCCESS result (not an error) whose payload is:
 
 ```json
 { "businesses": [{ "businessId": "...", "name": "..." }], "hint": "You manage multiple businesses. Call again with businessId set to one of these." }
@@ -45,7 +45,7 @@ Check for this shape (`businesses` + `hint`) before treating any response as the
 
 ## Platforms are open-ended
 
-Every review carries a `provider` field (`google`, `tripadvisor`, ...). The value set GROWS as StarReview activates more platforms - never hardcode it, never reject an unknown value. What differs per platform is only the post-submit outcome, and that is always signaled per response (`autoScheduled` / approval queue / `awaitingManualPost` + `platformListingUrl`), never by the platform name. `list_unanswered_reviews` accepts an optional `provider` filter; an unknown slug returns an empty list.
+Every review carries a `provider` field (`google`, `tripadvisor`, ...). The value set GROWS as StarReview activates more platforms - never hardcode it, never reject an unknown value. What differs per platform is the publishing lane: a live posting API may return `autoScheduled`, while a provider without a posting API remains in the approval queue until a human approves it and the owner receives the manual-post link. Trust the response fields, never infer an outcome from the platform name. `list_unanswered_reviews` accepts an optional `provider` filter; an unknown slug returns an empty list.
 
 ## Workflow
 
@@ -56,10 +56,11 @@ Every review carries a `provider` field (`google`, `tripadvisor`, ...). The valu
 4. Optional `preferredPostAt` (ISO 8601): StarReview will not post before that time.
 5. Read the submit response:
    - `submit_reply_for_approval` returns `{ submitted, autoScheduled, gateOutcomes }` - `gateOutcomes` explains whether the reply scheduled on the owner's standing consent or waits in the approval queue.
-   - `submit_own_reply` returns `{ submitted: true, autoScheduled: false }` (no `gateOutcomes`) - your own text always waits for a human.
-   - A TripAdvisor submit returns the `awaitingManualPost` shape below instead of `autoScheduled: true`.
+   - `submit_own_reply` returns `{ submitted: true, autoScheduled: false }`; your own text always waits for a human.
+   - A provider without a posting API does not auto-schedule from an agent submission. It remains pending until human approval; only then does the owner receive the manual-post outcome below.
+   - `gateOutcomes.agentConsentCurrent` reports whether the owner accepted the current Agent Access policy. When false, submission still succeeds but remains pending with `pendingReason: "agent_consent_upgrade_required"`.
 
-**TripAdvisor terminal state:** there is no TripAdvisor reply API. An approved TripAdvisor reply returns `awaitingManualPost: true` plus a `platformListingUrl` deep link - the OWNER posts it through TripAdvisor's own portal. Treat this as a distinct successful outcome, not a failure; do not retry it.
+**TripAdvisor terminal state:** there is no TripAdvisor reply API. Agent submission stays pending until a human approves it. The approved reply then has `awaitingManualPost: true` plus a `platformListingUrl` deep link - the OWNER posts it through TripAdvisor's own portal. Treat that eventual state as distinct from an API post; do not claim it was posted.
 
 ## Error codes: refusals vs failures
 
@@ -97,9 +98,10 @@ Authenticated: 20 tool calls/min per credential; `draft_reply` ~25/day. Public: 
 
 ## Boundaries (state them accurately)
 
-- An agent cannot publish to Google: structural - no publish tool exists.
-- An unedited StarReview draft on a positive review at a business whose owner has standing auto-publish consent may schedule without a further human click; that rides the owner's own prior decision. `submit_own_reply` never takes that path.
-- Negative and sensitive reviews always wait for a human, and every draft passes a sentiment check.
+- An agent cannot publish to any provider: structural - no publish tool exists.
+- StarReview applies the owner's existing approval and provider-specific automatic-publishing settings. On a live posting API, an eligible, unedited StarReview draft may schedule without another click when current Agent Consent and safety checks allow it.
+- Agent-written, edited, or safety-held replies remain pending. `submit_own_reply` never takes the automatic path.
+- A provider without a posting API remains pending until human approval; the owner then posts manually through the returned link.
 
 ## Compatibility promise
 

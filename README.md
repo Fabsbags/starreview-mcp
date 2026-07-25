@@ -2,7 +2,7 @@
 
 > StarReview Model Context Protocol (MCP) endpoint for AI agents.
 
-StarReview lets AI agents manage a business's Google and TripAdvisor review replies through a hosted MCP endpoint, with the business owner's approval and StarReview's guardrails built in.
+StarReview lets AI agents manage a business's Google and TripAdvisor review replies through a hosted MCP endpoint, under the business owner's approval and provider-specific automatic-publishing policy.
 
 The server is **hosted** — there is nothing to run. This package carries the connection knowledge: this README plus [`SKILL.md`](./SKILL.md), a drop-in skill that teaches an agent the parts of the protocol no tool schema can express.
 
@@ -35,7 +35,7 @@ Seven business tools, authenticated via OAuth or an owner-issued agent key (main
 - `get_review_stats`: read-only KPIs — totals, average rating, response rate, pending, backlog, speed on negatives, per-platform breakdown
 - `get_review_context`: the full review (including its platform) plus any existing drafts
 - `draft_reply`: generate a reply in the business's voice
-- `submit_reply_for_approval`: put a StarReview draft into the owner's approval queue, with optional edits and an optional preferred post time
+- `submit_reply_for_approval`: submit a StarReview draft so StarReview can apply the owner's publishing policy, with optional edits and an optional preferred post time
 - `submit_own_reply`: put the agent's own reply text into the owner's approval queue
 
 There is no publish tool: an agent can never post a reply itself. How publishing is governed is described under "What an agent cannot do" below.
@@ -91,7 +91,7 @@ Public tools are rate-limited per IP, results are cached for about 30 days (do n
 - `get_review_stats`: read-only KPIs — totals, average rating, response rate, pending, backlog, speed on negatives, per-platform breakdown (optionally windowed by `days`)
 - `get_review_context`: the full review (including its platform) plus any existing drafts
 - `draft_reply`: generate a reply in the business's voice
-- `submit_reply_for_approval`: put one of StarReview's drafted variants into the owner's approval queue, optionally editing its text, with an optional preferred post time. For a TripAdvisor review, an approved reply comes back with a link the owner posts through
+- `submit_reply_for_approval`: submit one of StarReview's drafted variants so StarReview can apply the owner's publishing policy, optionally editing its text and setting a preferred post time. A provider with no posting API stays pending until a human approves it; the owner then gets the manual-post link
 - `submit_own_reply`: put your agent's OWN reply text into the owner's approval queue. Always requires human approval and never auto-schedules.
 
 Platform values are open-ended: new platforms appear as StarReview activates them, tagged by the same `provider` field, with the post-submit outcome always signaled per response. Contract changes are additive-only (see `SKILL.md`, "Compatibility promise").
@@ -100,14 +100,14 @@ If the signed-in owner manages more than one business, calls without a `business
 
 ## What an agent cannot do
 
-Post a reply itself. Posting is never done by an agent call. For Google, StarReview's own infrastructure publishes the reply once the owner's decision allows it — a per-reply approval, or the owner's standing auto-publish consent covering an unedited StarReview draft on a positive review — on its own schedule. For TripAdvisor, which has no third-party reply API, StarReview returns a link and the owner posts the approved reply in their own TripAdvisor account. Either way, an agent drafts and submits, the owner's decision governs publishing, and the agent never posts. Negative reviews always wait for a human.
+Post a reply itself. The agent drafts and submits; it never posts. StarReview applies the owner's existing approval and provider-specific automatic-publishing settings. On a provider with a live posting API, an eligible, unedited StarReview draft may be scheduled without another click when current Agent Consent and safety checks allow it. Agent-written, edited, or safety-held replies remain pending. A provider with no posting API always remains pending until a human approves it; StarReview then returns a link and the owner posts the approved reply in the provider's own portal.
 
 ## The flow
 
 1. Your agent lists unanswered reviews and reads their context.
 2. It submits a reply, StarReview's draft or its own text, with an optional preferred post time.
-3. The reply enters the owner's approval queue — unless it is an unedited StarReview draft on a positive review at a business whose owner has standing auto-publish consent, in which case it schedules on that prior decision. Negative reviews always wait for a human.
-4. Once the owner's decision allows it, StarReview posts a Google reply from its own infrastructure (at your preferred time if you set one); for a TripAdvisor reply it returns a link the owner posts the reply through.
+3. StarReview applies the owner's existing approval and provider-specific automatic-publishing settings. On a live posting API, an eligible, unedited StarReview draft may schedule when current Agent Consent and safety checks allow it; agent-written, edited, safety-held, and no-posting-API replies remain pending.
+4. Once the owner's decision allows it, StarReview uses the provider's live posting API from its own infrastructure (at your preferred time if you set one). When no posting API is available, the reply remains pending until human approval and the owner then receives a manual-post link.
 
 ## Pricing
 
@@ -127,6 +127,11 @@ cp node_modules/@starreview/mcp/SKILL.md ~/.claude/skills/starreview-mcp/SKILL.m
 ## Machine-readable contract
 
 The full generated tool contract (schemas, rate limits, error codes) ships in this package as [`agent-contract.generated.json`](./agent-contract.generated.json), regenerated from the same source the server serves and guarded against drift.
+
+The contract also publishes the current Agent Consent/privacy versions and a
+structured `publishingPolicy`. Existing credentials with stale consent retain
+read, draft, and submit access, but submissions remain pending until the owner
+accepts the current policy.
 
 ## Learn more
 
