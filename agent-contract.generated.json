@@ -1,7 +1,7 @@
 {
   "$comment": "GENERATED FILE — do not hand-edit. Source: config/agentTools.js. Run npm run write:agent-contract.",
   "serverName": "starreview",
-  "serverVersion": "0.6.0",
+  "serverVersion": "0.6.1",
   "resource": "https://mcp.starreview.ch",
   "endpoint": "https://mcp.starreview.ch/",
   "transport": "streamable-http",
@@ -14,6 +14,23 @@
     "protectedResourceMetadata": "https://mcp.starreview.ch/.well-known/oauth-protected-resource",
     "authorizationServerMetadata": "https://mcp.starreview.ch/.well-known/oauth-authorization-server",
     "serviceCard": "https://mcp.starreview.ch/.well-known/mcp.json"
+  },
+  "agentConsent": {
+    "currentVersion": "2026-07-24-v2",
+    "privacyDocumentKey": "agent_mcp_privacy",
+    "privacyCurrentVersion": "2026-07-24-v2",
+    "requiredForAutomaticScheduling": true,
+    "staleCredentialBehavior": "submission_succeeds_pending",
+    "staleSubmissionReason": "agent_consent_upgrade_required"
+  },
+  "publishingPolicy": {
+    "agentCanPost": false,
+    "eligibleUneditedStarReviewDraftMayAutoSchedule": true,
+    "agentAuthoredRepliesRequireApproval": true,
+    "editedRepliesRequireApproval": true,
+    "safetyHeldRepliesRequireApproval": true,
+    "unsupportedProvidersRequireManualPost": true,
+    "unsupportedProvidersRemainPendingUntilHumanApproval": true
   },
   "authenticatedTools": [
     {
@@ -29,7 +46,7 @@
         "properties": {
           "businessId": {
             "type": "string",
-            "description": "OAuth only: which of your businesses to act on. Omit it and, if you manage more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored when authenticating with a per-business token, where the token pins the business."
+            "description": "For OAuth and owner-wide self-service sragt_ keys: which of the owner's businesses to act on. Omit it and, if the owner manages more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored only for legacy/admin per-business credentials, which pin one business."
           }
         },
         "additionalProperties": false
@@ -48,7 +65,7 @@
         "properties": {
           "businessId": {
             "type": "string",
-            "description": "OAuth only: which of your businesses to act on. Omit it and, if you manage more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored when authenticating with a per-business token, where the token pins the business."
+            "description": "For OAuth and owner-wide self-service sragt_ keys: which of the owner's businesses to act on. Omit it and, if the owner manages more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored only for legacy/admin per-business credentials, which pin one business."
           },
           "locationId": {
             "type": "string",
@@ -56,7 +73,9 @@
           },
           "provider": {
             "type": "string",
+            "minLength": 1,
             "maxLength": 40,
+            "pattern": "\\S",
             "description": "Optional provider slug to scope the list to (e.g. \"google\", \"tripadvisor\"). Unknown values return an empty list."
           },
           "limit": {
@@ -82,7 +101,7 @@
         "properties": {
           "businessId": {
             "type": "string",
-            "description": "OAuth only: which of your businesses to act on. Omit it and, if you manage more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored when authenticating with a per-business token, where the token pins the business."
+            "description": "For OAuth and owner-wide self-service sragt_ keys: which of the owner's businesses to act on. Omit it and, if the owner manages more than one, the call returns a business picker instead of doing the work: a SUCCESS result whose payload is { businesses: [...], hint: \"...\" }. Call again with businessId set to one of the returned businessId values. Ignored only for legacy/admin per-business credentials, which pin one business."
           },
           "locationId": {
             "type": "string",
@@ -123,7 +142,7 @@
     {
       "name": "draft_reply",
       "title": "Draft AI reply variants",
-      "description": "Generate AI reply variants for a pending review (Google or TripAdvisor) and save them as drafts awaiting human approval.",
+      "description": "Generate StarReview AI reply variants for a pending review (Google or TripAdvisor) and save them as drafts. The agent only drafts and submits; it never posts. On later submission, an eligible unedited StarReview draft may be scheduled under the owner's existing approval/automatic-publishing settings when current Agent Consent and safety checks allow it; edited or safety-held replies remain pending.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -147,7 +166,7 @@
     {
       "name": "submit_reply_for_approval",
       "title": "Submit a drafted reply for approval",
-      "description": "Commit one of StarReview's drafted variants (from `draft_reply`) into the owner's approval queue, optionally editing its text. For Google, an unedited reply on a consented, positive review may be scheduled and StarReview posts it from its own infrastructure. For TripAdvisor (no reply API), an approved reply comes back as `awaitingManualPost` with a `platformListingUrl` deep-link the owner posts through in TripAdvisor's own portal; StarReview never posts to TripAdvisor. To submit the agent's OWN reply text instead (no prior draft), use `submit_own_reply`.",
+      "description": "Submit one of StarReview's drafted variants (from `draft_reply`), optionally editing its text, so StarReview can apply the owner's approval and automatic-publishing policy. The agent submits and never posts. On a provider with a live posting API, an eligible unedited StarReview draft may be scheduled when that provider's owner settings, current Agent Consent, and safety checks allow it; agent-written, edited, or safety-held replies remain pending. A provider without a posting API always remains pending until a human approves it, after which the owner receives the manual-post link. To submit the agent's OWN reply text instead (no prior draft), use `submit_own_reply`.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -163,15 +182,18 @@
           },
           "variant": {
             "type": "integer",
+            "minimum": 1,
             "description": "Which drafted variant number (from draft_reply) to submit. Required."
           },
           "finalText": {
             "type": "string",
+            "minLength": 1,
             "description": "Optional: overrides the chosen draft variant's text with this edited version."
           },
           "preferredPostAt": {
             "type": "string",
-            "description": "Optional ISO 8601 timestamp: StarReview will not post the reply before this time. StarReview's own scheduler/poster still performs the actual publish."
+            "format": "date-time",
+            "description": "Optional ISO 8601 timestamp: where a provider posting API is supported, StarReview will not post the reply before this time. Providers without a posting API still require the owner to post manually."
           }
         },
         "required": [
@@ -184,7 +206,7 @@
     {
       "name": "submit_own_reply",
       "title": "Submit your own reply for approval",
-      "description": "Submit the agent's OWN reply text into the owner's approval queue, with no StarReview draft (no LLM call). Always requires human approval and NEVER auto-schedules — even on a positive, consented business. StarReview publishes every reply from its own infrastructure after the owner approves; the agent only drafts and submits. To commit one of StarReview's own drafts instead, use `submit_reply_for_approval`.",
+      "description": "Submit the agent's OWN reply text into the owner's approval queue, with no StarReview draft (no LLM call). It always requires human approval and NEVER auto-schedules — even on a positive, consented business. After approval, StarReview uses its own infrastructure only where the provider has a supported posting API; otherwise the owner posts through the returned manual-post link. The agent only drafts and submits. To submit one of StarReview's own drafts instead, use `submit_reply_for_approval`.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -200,11 +222,13 @@
           },
           "finalText": {
             "type": "string",
+            "minLength": 1,
             "description": "The agent's own reply text. This IS the reply. Required."
           },
           "preferredPostAt": {
             "type": "string",
-            "description": "Optional ISO 8601 timestamp: StarReview will not post the reply before this time. StarReview's own scheduler/poster still performs the actual publish."
+            "format": "date-time",
+            "description": "Optional ISO 8601 timestamp: after human approval and where a provider posting API is supported, StarReview will not post the reply before this time. Providers without a posting API still require the owner to post manually."
           }
         },
         "required": [

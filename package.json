@@ -1,6 +1,6 @@
 {
   "name": "@starreview/mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "StarReview hosted MCP server for AI agents: draft and submit Google & TripAdvisor review replies for local businesses; agents can never post themselves - publishing stays under the owner's control. Ships the connection README and a drop-in agent skill (SKILL.md).",
   "keywords": [
     "mcp",
