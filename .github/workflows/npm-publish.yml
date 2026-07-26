@@ -15,6 +15,10 @@ name: npm trusted publish
 on:
   workflow_dispatch:
     inputs:
+      mirror_sha:
+        description: Reviewed full 40-character lowercase commit SHA from Fabsbags/starreview-mcp main
+        required: true
+        type: string
       cli_sha:
         description: Full 40-character lowercase commit SHA from Fabsbags/starreview-agent
         required: true
@@ -29,15 +33,17 @@ jobs:
     permissions:
       contents: read
     outputs:
+      mirror_sha: ${{ steps.guard.outputs.mirror_sha }}
       artifact_name: ${{ steps.candidate.outputs.artifact_name }}
       filename: ${{ steps.candidate.outputs.filename }}
       sha256: ${{ steps.candidate.outputs.sha256 }}
       version: ${{ steps.candidate.outputs.version }}
     steps:
-      - name: Guard repository, branch, and CLI commit
+      - name: Guard repository, branch, mirror commit, and CLI commit
         id: guard
         shell: bash
         env:
+          MIRROR_SHA: ${{ inputs.mirror_sha }}
           CLI_SHA: ${{ inputs.cli_sha }}
         run: |
           set -euo pipefail
@@ -49,17 +55,42 @@ jobs:
             echo "Refusing publish candidate from $GITHUB_REF; dispatch from main."
             exit 1
           fi
+          if [[ ! "$MIRROR_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "mirror_sha must be a full 40-character lowercase hexadecimal commit SHA."
+            exit 1
+          fi
+          if [[ "$GITHUB_SHA" != "$MIRROR_SHA" ]]; then
+            echo "Dispatch commit mismatch: expected $MIRROR_SHA, got $GITHUB_SHA."
+            exit 1
+          fi
           if [[ ! "$CLI_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "cli_sha must be a full 40-character lowercase hexadecimal commit SHA."
             exit 1
           fi
+          echo "mirror_sha=$MIRROR_SHA" >> "$GITHUB_OUTPUT"
           echo "cli_sha=$CLI_SHA" >> "$GITHUB_OUTPUT"
 
       # Pinned GitHub-owned actions: checkout v4.3.1, setup-node v4.4.0.
-      - name: Check out public mirror main
+      - name: Check out exact public mirror commit
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          ref: ${{ steps.guard.outputs.mirror_sha }}
           persist-credentials: false
+
+      - name: Verify mirror checkout resolved exactly
+        shell: bash
+        env:
+          EXPECTED_MIRROR_SHA: ${{ steps.guard.outputs.mirror_sha }}
+        run: |
+          set -euo pipefail
+          actual_mirror_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_mirror_sha" != "$EXPECTED_MIRROR_SHA" ]]; then
+            echo "Mirror checkout mismatch: expected $EXPECTED_MIRROR_SHA, got $actual_mirror_sha."
+            exit 1
+          fi
+
+      - name: Verify trusted-publish workflow guards
+        run: node --test tests/trustedPublishWorkflow.test.mjs
 
       - name: Set up Node.js 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -182,17 +213,23 @@ jobs:
   publish:
     needs: candidate
     runs-on: ubuntu-latest
-    if: github.repository == 'Fabsbags/starreview-mcp' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Fabsbags/starreview-mcp' && github.ref == 'refs/heads/main' && github.sha == needs.candidate.outputs.mirror_sha
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Guard trusted-publisher identity
         shell: bash
+        env:
+          EXPECTED_MIRROR_SHA: ${{ needs.candidate.outputs.mirror_sha }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REPOSITORY" != "Fabsbags/starreview-mcp" || "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "Refusing trusted publish outside Fabsbags/starreview-mcp main."
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_MIRROR_SHA" =~ ^[0-9a-f]{40}$ || "$GITHUB_SHA" != "$EXPECTED_MIRROR_SHA" ]]; then
+            echo "Refusing trusted publish: workflow SHA does not equal reviewed mirror SHA."
             exit 1
           fi
 

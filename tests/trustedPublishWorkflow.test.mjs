@@ -25,6 +25,31 @@ test('requires an exact CLI SHA and confines consumer code to the no-OIDC job', 
   assert.ok(candidate.includes('npm run test:contract'));
 });
 
+test('binds candidate and OIDC publish to the reviewed mirror SHA', () => {
+  const candidate = workflow.slice(
+    workflow.indexOf('  candidate:'),
+    workflow.indexOf('\n  publish:'),
+  );
+  const publish = workflow.slice(
+    workflow.indexOf('\n  publish:'),
+    workflow.indexOf('\n  verify_registry:'),
+  );
+
+  assert.match(workflow, /mirror_sha:[\s\S]*?required: true/);
+  assert.ok(candidate.includes('MIRROR_SHA: ${{ inputs.mirror_sha }}'));
+  assert.ok(candidate.includes('if [[ "$GITHUB_SHA" != "$MIRROR_SHA" ]]'));
+  assert.ok(candidate.includes('mirror_sha: ${{ steps.guard.outputs.mirror_sha }}'));
+  assert.ok(candidate.includes('ref: ${{ steps.guard.outputs.mirror_sha }}'));
+  assert.ok(candidate.includes('actual_mirror_sha="$(git rev-parse HEAD)"'));
+  assert.ok(candidate.includes('node --test tests/trustedPublishWorkflow.test.mjs'));
+
+  assert.ok(publish.includes(
+    'EXPECTED_MIRROR_SHA: ${{ needs.candidate.outputs.mirror_sha }}',
+  ));
+  assert.ok(publish.includes('"$GITHUB_SHA" != "$EXPECTED_MIRROR_SHA"'));
+  assert.ok(!publish.includes('actions/checkout@'));
+});
+
 test('gives OIDC only to the artifact-only publish job', () => {
   const publish = workflow.slice(
     workflow.indexOf('\n  publish:'),
