@@ -1,0 +1,642 @@
+# Trusted publication for @starreview/mcp from CircleCI.
+#
+# Security boundary:
+#   1. `candidate` checks out the exact current main commit, packs it once,
+#      tests that immutable tarball against a pinned starreview-agent commit,
+#      and persists only the tarball plus fixed-format metadata.
+#   2. `publish` runs automatically after the candidate and is the only job
+#      attached to `npm-trusted-publishing`. npm must be
+#      configured to trust this context's UUID. The job does not check out or
+#      execute repository/consumer code and mints NPM_ID_TOKEN only for the
+#      single npm publish command.
+#   3. `verify_registry` has no publishing context. It downloads the registry
+#      tarball and checks that its bytes and contents equal the tested candidate.
+#
+# Required CircleCI/npm setup outside this file:
+#   - Protect main and require reviewed pull requests for release changes.
+#   - Restrict `npm-trusted-publishing` to this CircleCI project.
+#   - Add this expression restriction to the context:
+#       pipeline.git.branch == "main" and
+#       pipeline.config.ref == "refs/heads/main" and
+#       pipeline.event.name == "push" and
+#       not job.ssh.enabled
+#   - Configure @starreview/mcp's npm trusted publisher with this CircleCI
+#     organization, project, pipeline-definition, VCS-origin, and context UUID.
+#   - Do not add NPM_TOKEN, NODE_AUTH_TOKEN, or any npm credential to the context.
+#
+# npm provenance is intentionally omitted: npm and CircleCI currently document
+# that provenance attestations are unavailable for CircleCI trusted publishing.
+
+version: 2.1
+
+executors:
+  release_node:
+    docker:
+      # A full Node release tag is stable; this image includes the CircleCI
+      # in-job environment CLI used by `circleci run oidc get`.
+      - image: cimg/node:24.18.0
+    resource_class: small
+
+jobs:
+  verify_release_policy:
+    executor: release_node
+    steps:
+      - checkout
+      - run:
+          name: Verify release-policy tests
+          command: node --test
+
+  candidate:
+    executor: release_node
+    environment:
+      # Reviewed Fabsbags/starreview-agent main commit used for the consumer
+      # contract test. Update this full SHA in a reviewed pull request.
+      CLI_SHA: "2317d5d95dccf29ba1e616fb98742a91879e76f4"
+    steps:
+      - checkout
+      - run:
+          name: Guard repository and exact current main commit
+          command: |
+            set -euo pipefail
+
+            if [[ "${CIRCLE_PROJECT_USERNAME:-}/${CIRCLE_PROJECT_REPONAME:-}" != "Fabsbags/starreview-mcp" ]]; then
+              echo "Refusing release candidate outside Fabsbags/starreview-mcp."
+              exit 1
+            fi
+            if [[ "${CIRCLE_BRANCH:-}" != "main" || -n "${CIRCLE_TAG:-}" ]]; then
+              echo "Refusing release candidate outside the main branch."
+              exit 1
+            fi
+            if [[ ! "${CIRCLE_SHA1:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "CIRCLE_SHA1 must be a full lowercase commit SHA."
+              exit 1
+            fi
+            actual_sha="$(git rev-parse HEAD)"
+            if [[ "$actual_sha" != "$CIRCLE_SHA1" ]]; then
+              echo "Checkout mismatch: expected $CIRCLE_SHA1, got $actual_sha."
+              exit 1
+            fi
+
+            origin_url="$(git remote get-url origin)"
+            if [[ ! "$origin_url" =~ github\.com[:/]Fabsbags/starreview-mcp(\.git)?$ ]]; then
+              # Do not print the URL: a GitHub App checkout may embed an
+              # ephemeral credential in it.
+              echo "Checkout origin is not Fabsbags/starreview-mcp."
+              exit 1
+            fi
+
+            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+            remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
+            if [[ "$remote_main_sha" != "$CIRCLE_SHA1" ]]; then
+              echo "Refusing stale main candidate: origin/main is $remote_main_sha, pipeline is $CIRCLE_SHA1."
+              exit 1
+            fi
+
+      - run:
+          name: Verify trusted-publishing toolchain
+          command: |
+            set -euo pipefail
+            node - \<<'NODE'
+            const [major, minor] = process.versions.node.split('.').map(Number);
+            if (major < 22 || (major === 22 && minor < 14)) {
+              throw new Error('trusted publish requires Node.js >=22.14');
+            }
+            NODE
+            node - \<<'NODE'
+            const { execFileSync } = require('node:child_process');
+            const [major, minor, patch] = execFileSync(
+              'npm',
+              ['--version'],
+              { encoding: 'utf8' },
+            ).trim().split('.').map(Number);
+            if (
+              major < 11
+              || (major === 11 && minor < 5)
+              || (major === 11 && minor === 5 && patch < 1)
+            ) {
+              throw new Error('trusted publish requires npm >=11.5.1');
+            }
+            NODE
+
+      - run:
+          name: Guard package metadata
+          command: |
+            set -euo pipefail
+            node - \<<'NODE'
+            const pkg = require('./package.json');
+            const manifest = require('./server.json');
+
+            if (pkg.name !== '@starreview/mcp') {
+              throw new Error(`unexpected package name: ${pkg.name}`);
+            }
+            if (pkg.version !== manifest.version) {
+              throw new Error(
+                `version mismatch: package.json ${pkg.version} vs server.json ${manifest.version}`,
+              );
+            }
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) {
+              throw new Error(`release version must be semver-like: ${pkg.version}`);
+            }
+            if (pkg.repository?.url !== 'git+https://github.com/Fabsbags/starreview-mcp.git') {
+              throw new Error('package repository must identify the trusted-publisher repository');
+            }
+            if (pkg.publishConfig?.access !== 'public') {
+              throw new Error('package publishConfig.access must be public');
+            }
+            NODE
+
+      - run:
+          name: Pack and hash the exact candidate once
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+            mkdir -p "$release_dir"
+
+            version="$(node -p "require('./package.json').version")"
+            pack_output="$(
+              npm pack \
+                --silent \
+                --ignore-scripts \
+                --pack-destination "$release_dir"
+            )"
+            if [[ -z "$pack_output" || "$pack_output" == *$'\n'* ]]; then
+              echo "npm pack must produce exactly one filename, got: $pack_output"
+              exit 1
+            fi
+            expected_filename="starreview-mcp-$version.tgz"
+            if [[ "$pack_output" != "$expected_filename" ]]; then
+              echo "Unexpected packed filename: expected $expected_filename, got $pack_output."
+              exit 1
+            fi
+            if [[ ! -f "$release_dir/$pack_output" || -L "$release_dir/$pack_output" ]]; then
+              echo "npm pack did not create one regular tarball."
+              exit 1
+            fi
+            mv "$release_dir/$pack_output" "$release_dir/package.tgz"
+
+            printf '%s\n' "$version" > "$release_dir/version.txt"
+            printf '%s\n' "$CIRCLE_SHA1" > "$release_dir/mirror-sha.txt"
+            (
+              cd "$release_dir"
+              sha256sum package.tgz > package.tgz.sha256
+            )
+
+            printf '%s\n' \
+              package/LICENSE \
+              package/README.md \
+              package/SKILL.md \
+              package/agent-contract.generated.json \
+              package/package.json \
+              package/server.json \
+              | LC_ALL=C sort > /tmp/expected-candidate-contents.txt
+            tar -tzf "$release_dir/package.tgz" \
+              | sed '/\/$/d' \
+              | LC_ALL=C sort -u > /tmp/actual-candidate-contents.txt
+            diff --unified \
+              /tmp/expected-candidate-contents.txt \
+              /tmp/actual-candidate-contents.txt
+
+      - run:
+          name: Check out the exact CLI consumer commit
+          command: |
+            set -euo pipefail
+            if [[ ! "$CLI_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "CLI_SHA must be a full lowercase commit SHA."
+              exit 1
+            fi
+
+            git clone \
+              --no-checkout \
+              --filter=blob:none \
+              --single-branch \
+              --branch main \
+              https://github.com/Fabsbags/starreview-agent.git \
+              /tmp/cli-consumer
+            git -C /tmp/cli-consumer checkout --detach "$CLI_SHA"
+
+            actual_cli_sha="$(git -C /tmp/cli-consumer rev-parse HEAD)"
+            if [[ "$actual_cli_sha" != "$CLI_SHA" ]]; then
+              echo "CLI checkout mismatch: expected $CLI_SHA, got $actual_cli_sha."
+              exit 1
+            fi
+            if ! git -C /tmp/cli-consumer merge-base --is-ancestor \
+              "$CLI_SHA" refs/remotes/origin/main; then
+              echo "Pinned CLI commit is not reachable from Fabsbags/starreview-agent main."
+              exit 1
+            fi
+
+      - run:
+          name: Install the packed candidate without lifecycle scripts
+          working_directory: /tmp/cli-consumer
+          command: |
+            set -euo pipefail
+            npm install \
+              --no-save \
+              --package-lock=false \
+              --ignore-scripts \
+              /tmp/release-workspace/candidate/package.tgz \
+              ajv@8.20.0 \
+              ajv-formats@3.0.1
+
+      - run:
+          name: Test CLI requests against the exact candidate
+          working_directory: /tmp/cli-consumer
+          command: npm run test:contract
+
+      - run:
+          name: Verify the tested candidate is unchanged
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+            (
+              cd "$release_dir"
+              sha256sum --check package.tgz.sha256
+            )
+            chmod 0444 \
+              "$release_dir/package.tgz" \
+              "$release_dir/package.tgz.sha256" \
+              "$release_dir/version.txt" \
+              "$release_dir/mirror-sha.txt"
+
+      - run:
+          name: Decide publish or verified no-op
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+            version="$(cat "$release_dir/version.txt")"
+            checksum_line="$(cat "$release_dir/package.tgz.sha256")"
+            expected_sha="${checksum_line%% *}"
+            package_spec="@starreview/mcp@$version"
+            registry_error="/tmp/npm-view-decision-error.log"
+
+            if published_version="$(
+              npm view "$package_spec" version \
+                --registry=https://registry.npmjs.org/ \
+                2>"$registry_error"
+            )"; then
+              if [[ "$published_version" != "$version" ]]; then
+                echo "Registry returned unexpected version $published_version."
+                exit 1
+              fi
+
+              registry_dir="/tmp/existing-registry"
+              mkdir -p "$registry_dir"
+              registry_pack_error="/tmp/npm-pack-decision-error.log"
+              if ! registry_filename="$(
+                npm pack "$package_spec" \
+                  --silent \
+                  --ignore-scripts \
+                  --pack-destination "$registry_dir" \
+                  --registry=https://registry.npmjs.org/ \
+                  2>"$registry_pack_error"
+              )"; then
+                echo "Existing registry version could not be downloaded:"
+                cat "$registry_pack_error"
+                exit 1
+              fi
+
+              expected_filename="starreview-mcp-$version.tgz"
+              if [[ "$registry_filename" != "$expected_filename" ]]; then
+                echo "Existing registry filename mismatch: expected $expected_filename, got $registry_filename."
+                exit 1
+              fi
+              registry_tarball="$registry_dir/$registry_filename"
+              if [[ ! -f "$registry_tarball" || -L "$registry_tarball" ]]; then
+                echo "Existing registry pack did not create one regular tarball."
+                exit 1
+              fi
+              actual_sha="$(sha256sum "$registry_tarball" | awk '{print $1}')"
+              if [[ "$actual_sha" != "$expected_sha" ]]; then
+                echo "Version $version already exists with different bytes; bump the package version."
+                exit 1
+              fi
+
+              decision="skip"
+              echo "Registry already contains the exact tested bytes for $package_spec; publishing is a no-op."
+            else
+              if ! grep -q 'E404' "$registry_error"; then
+                echo "Registry lookup failed for a reason other than an unpublished version:"
+                cat "$registry_error"
+                exit 1
+              fi
+              decision="publish"
+              echo "Registry confirms $package_spec is unpublished."
+            fi
+
+            printf '%s\n' "$decision" > "$release_dir/decision.txt"
+            chmod 0444 "$release_dir/decision.txt"
+
+      - persist_to_workspace:
+          root: /tmp/release-workspace
+          paths:
+            - candidate
+
+  publish:
+    executor: release_node
+    steps:
+      # Deliberately no checkout: this job must never execute repository or CLI
+      # code. The protected context is attached only to this job in the workflow.
+      - attach_workspace:
+          at: /tmp/release-workspace
+      - run:
+          name: Verify the exact approved artifact
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+
+            printf '%s\n' \
+              decision.txt \
+              mirror-sha.txt \
+              package.tgz \
+              package.tgz.sha256 \
+              version.txt \
+              | LC_ALL=C sort > /tmp/expected-release-files.txt
+            find "$release_dir" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+              | LC_ALL=C sort > /tmp/actual-release-files.txt
+            diff --unified \
+              /tmp/expected-release-files.txt \
+              /tmp/actual-release-files.txt
+
+            for filename in \
+              decision.txt \
+              mirror-sha.txt \
+              package.tgz \
+              package.tgz.sha256 \
+              version.txt; do
+              if [[ ! -f "$release_dir/$filename" || -L "$release_dir/$filename" ]]; then
+                echo "Release artifact entry is not a regular file: $filename"
+                exit 1
+              fi
+            done
+
+            decision="$(cat "$release_dir/decision.txt")"
+            version="$(cat "$release_dir/version.txt")"
+            mirror_sha="$(cat "$release_dir/mirror-sha.txt")"
+            checksum_line="$(cat "$release_dir/package.tgz.sha256")"
+            expected_sha="${checksum_line%% *}"
+            if [[ "$decision" != "publish" && "$decision" != "skip" ]]; then
+              echo "Invalid candidate publish decision."
+              exit 1
+            fi
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Invalid candidate version metadata."
+              exit 1
+            fi
+            if [[ ! "$mirror_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Invalid candidate commit metadata."
+              exit 1
+            fi
+            if [[ ! "$expected_sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Invalid candidate SHA256 metadata."
+              exit 1
+            fi
+            if [[ "$checksum_line" != "$expected_sha  package.tgz" ]]; then
+              echo "Checksum manifest has an unexpected format."
+              exit 1
+            fi
+            (
+              cd "$release_dir"
+              sha256sum --check package.tgz.sha256
+            )
+
+      - run:
+          name: Guard current main, registry, and trusted-publishing toolchain
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+            decision="$(cat "$release_dir/decision.txt")"
+            version="$(cat "$release_dir/version.txt")"
+            mirror_sha="$(cat "$release_dir/mirror-sha.txt")"
+
+            if [[ "${CIRCLE_BRANCH:-}" != "main" || -n "${CIRCLE_TAG:-}" ]]; then
+              echo "Refusing trusted publish outside the main branch."
+              exit 1
+            fi
+            if [[ "${CIRCLE_PROJECT_USERNAME:-}/${CIRCLE_PROJECT_REPONAME:-}" != "Fabsbags/starreview-mcp" ]]; then
+              echo "Refusing trusted publish outside Fabsbags/starreview-mcp."
+              exit 1
+            fi
+
+            remote_main_line="$(
+              git ls-remote \
+                https://github.com/Fabsbags/starreview-mcp.git \
+                refs/heads/main
+            )"
+            if [[ "$remote_main_line" != "$mirror_sha"$'\trefs/heads/main' ]]; then
+              echo "Refusing stale candidate: origin/main no longer equals $mirror_sha."
+              exit 1
+            fi
+
+            if [[ "$decision" == "skip" ]]; then
+              echo "Exact version $version is already published; no OIDC token will be requested."
+              exit 0
+            fi
+            if [[ "$decision" != "publish" ]]; then
+              echo "Invalid candidate publish decision."
+              exit 1
+            fi
+
+            package_spec="@starreview/mcp@$version"
+            registry_error="/tmp/npm-view-error.log"
+            if published_version="$(
+              npm view "$package_spec" version \
+                --registry=https://registry.npmjs.org/ \
+                2>"$registry_error"
+            )"; then
+              echo "Refusing to overwrite existing registry version $published_version."
+              exit 1
+            fi
+            if ! grep -q 'E404' "$registry_error"; then
+              echo "Registry lookup failed for a reason other than an unpublished version:"
+              cat "$registry_error"
+              exit 1
+            fi
+
+            node - \<<'NODE'
+            const [major, minor] = process.versions.node.split('.').map(Number);
+            if (major < 22 || (major === 22 && minor < 14)) {
+              throw new Error('trusted publish requires Node.js >=22.14');
+            }
+            NODE
+            node - \<<'NODE'
+            const { execFileSync } = require('node:child_process');
+            const [major, minor, patch] = execFileSync(
+              'npm',
+              ['--version'],
+              { encoding: 'utf8' },
+            ).trim().split('.').map(Number);
+            if (
+              major < 11
+              || (major === 11 && minor < 5)
+              || (major === 11 && minor === 5 && patch < 1)
+            ) {
+              throw new Error('trusted publish requires npm >=11.5.1');
+            }
+            NODE
+
+            if [[ -n "${NPM_TOKEN:-}" || -n "${NODE_AUTH_TOKEN:-}" ]]; then
+              echo "Long-lived npm credentials must not be present in the publish job."
+              exit 1
+            fi
+            if [[ -f "$HOME/.npmrc" ]]; then
+              echo "Unexpected user npm configuration in the publish job."
+              exit 1
+            fi
+
+      - run:
+          name: Publish the exact tarball with short-lived OIDC
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+            decision="$(cat "$release_dir/decision.txt")"
+            version="$(cat "$release_dir/version.txt")"
+            if [[ "$decision" == "skip" ]]; then
+              echo "Exact version $version is already published; skipping OIDC token request and npm publish."
+              exit 0
+            fi
+            if [[ "$decision" != "publish" ]]; then
+              echo "Invalid candidate publish decision."
+              exit 1
+            fi
+
+            oidc_token="$(
+              circleci run oidc get \
+                --claims '{"aud":"npm:registry.npmjs.org"}'
+            )"
+            if [[ -z "$oidc_token" ]]; then
+              echo "CircleCI returned an empty npm OIDC token."
+              exit 1
+            fi
+
+            # NPM_ID_TOKEN exists only in the npm child process. Never echo,
+            # persist, or export the token, because CircleCI may not mask it.
+            NPM_ID_TOKEN="$oidc_token" npm publish \
+              /tmp/release-workspace/candidate/package.tgz \
+              --access public \
+              --ignore-scripts \
+              --registry=https://registry.npmjs.org/
+            unset oidc_token
+
+  verify_registry:
+    executor: release_node
+    steps:
+      # Deliberately no checkout and no publishing context.
+      - attach_workspace:
+          at: /tmp/release-workspace
+      - run:
+          name: Verify registry tarball bytes and contents
+          command: |
+            set -euo pipefail
+            release_dir="/tmp/release-workspace/candidate"
+            decision="$(cat "$release_dir/decision.txt")"
+            version="$(cat "$release_dir/version.txt")"
+            checksum_line="$(cat "$release_dir/package.tgz.sha256")"
+            expected_sha="${checksum_line%% *}"
+            if [[ "$decision" != "publish" && "$decision" != "skip" ]]; then
+              echo "Invalid candidate publish decision."
+              exit 1
+            fi
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Invalid candidate version metadata."
+              exit 1
+            fi
+            if [[ ! "$expected_sha" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Invalid candidate SHA256 metadata."
+              exit 1
+            fi
+            (
+              cd "$release_dir"
+              sha256sum --check package.tgz.sha256
+            )
+
+            package_spec="@starreview/mcp@$version"
+            published_version=""
+            for attempt in {1..12}; do
+              published_version="$(
+                npm view "$package_spec" version \
+                  --registry=https://registry.npmjs.org/ \
+                  2>/dev/null \
+                  || true
+              )"
+              if [[ "$published_version" == "$version" ]]; then
+                break
+              fi
+              if [[ "$attempt" == "12" ]]; then
+                echo "Registry did not expose exact version $version."
+                exit 1
+              fi
+              sleep 5
+            done
+
+            registry_dir="/tmp/registry"
+            mkdir -p "$registry_dir"
+            registry_filename=""
+            for attempt in {1..6}; do
+              if registry_filename="$(
+                npm pack "$package_spec" \
+                  --silent \
+                  --ignore-scripts \
+                  --pack-destination "$registry_dir" \
+                  --registry=https://registry.npmjs.org/ \
+                  2>/dev/null
+              )" && [[ -n "$registry_filename" ]]; then
+                break
+              fi
+              if [[ "$attempt" == "6" ]]; then
+                echo "Registry tarball for $package_spec was not downloadable."
+                exit 1
+              fi
+              sleep 5
+            done
+
+            expected_filename="starreview-mcp-$version.tgz"
+            if [[ "$registry_filename" != "$expected_filename" ]]; then
+              echo "Registry tarball name mismatch: expected $expected_filename, got $registry_filename."
+              exit 1
+            fi
+            registry_tarball="$registry_dir/$registry_filename"
+            if [[ ! -f "$registry_tarball" || -L "$registry_tarball" ]]; then
+              echo "Registry pack did not create one regular tarball."
+              exit 1
+            fi
+
+            actual_sha="$(sha256sum "$registry_tarball" | awk '{print $1}')"
+            if [[ "$actual_sha" != "$expected_sha" ]]; then
+              echo "Registry tarball SHA256 does not match the tested candidate."
+              exit 1
+            fi
+
+            printf '%s\n' \
+              package/LICENSE \
+              package/README.md \
+              package/SKILL.md \
+              package/agent-contract.generated.json \
+              package/package.json \
+              package/server.json \
+              | LC_ALL=C sort > /tmp/expected-registry-contents.txt
+            tar -tzf "$registry_tarball" \
+              | sed '/\/$/d' \
+              | LC_ALL=C sort -u > /tmp/actual-registry-contents.txt
+            diff --unified \
+              /tmp/expected-registry-contents.txt \
+              /tmp/actual-registry-contents.txt
+
+workflows:
+  npm_release:
+    jobs:
+      - verify_release_policy
+      - candidate:
+          requires:
+            - verify_release_policy
+          filters: pipeline.git.branch == "main" and pipeline.config.ref == "refs/heads/main" and pipeline.event.name == "push"
+      - publish:
+          context:
+            - npm-trusted-publishing
+          requires:
+            - candidate
+          serial-group: starreview-mcp/npm-publish
+          filters: pipeline.git.branch == "main" and pipeline.config.ref == "refs/heads/main" and pipeline.event.name == "push"
+      - verify_registry:
+          requires:
+            - publish
+          filters: pipeline.git.branch == "main" and pipeline.config.ref == "refs/heads/main" and pipeline.event.name == "push"
