@@ -47,15 +47,42 @@ test('packs one candidate and tests that immutable tarball against an exact CLI 
   assert.ok(candidate.includes('sha256sum --check package.tgz.sha256'));
 });
 
-test('binds the candidate to the exact current Fabsbags/starreview-mcp main commit', () => {
-  assert.ok(candidate.includes('Fabsbags/starreview-mcp'));
-  assert.ok(candidate.includes('"${CIRCLE_BRANCH:-}" != "main"'));
+test('binds candidate and publish to exact GitHub App pipeline values', () => {
+  for (const pipelineValue of [
+    '<< pipeline.git.repo_url >>',
+    '<< pipeline.config.repository.name >>',
+    '<< pipeline.config.ref >>',
+    '<< pipeline.config.sha >>',
+    '<< pipeline.git.branch >>',
+    '<< pipeline.git.revision >>',
+    '<< pipeline.event.name >>',
+  ]) {
+    assert.ok(candidate.includes(pipelineValue));
+    assert.ok(publish.includes(pipelineValue));
+  }
+
+  assert.ok(!config.includes('CIRCLE_PROJECT_USERNAME'));
+  assert.ok(!config.includes('CIRCLE_PROJECT_REPONAME'));
+  assert.ok(!config.includes('CIRCLE_BRANCH'));
+  assert.ok(!config.includes('CIRCLE_TAG'));
+  assert.ok(!config.includes('CIRCLE_SHA1'));
+
+  assert.ok(candidate.includes(
+    '"$PIPELINE_REPO_URL" != "https://github.com/Fabsbags/starreview-mcp"',
+  ));
+  assert.ok(candidate.includes('"$PIPELINE_CONFIG_REF" != "refs/heads/main"'));
+  assert.ok(candidate.includes('"$PIPELINE_GIT_BRANCH" != "main"'));
+  assert.ok(candidate.includes('"$PIPELINE_EVENT_NAME" != "push"'));
+  assert.ok(candidate.includes('"$PIPELINE_CONFIG_SHA" != "$PIPELINE_GIT_REVISION"'));
   assert.ok(candidate.includes('actual_sha="$(git rev-parse HEAD)"'));
-  assert.ok(candidate.includes('"$actual_sha" != "$CIRCLE_SHA1"'));
+  assert.ok(candidate.includes('"$actual_sha" != "$PIPELINE_GIT_REVISION"'));
   assert.ok(candidate.includes(
     '"+refs/heads/main:refs/remotes/origin/main"',
   ));
-  assert.ok(candidate.includes('"$remote_main_sha" != "$CIRCLE_SHA1"'));
+  assert.ok(candidate.includes('"$remote_main_sha" != "$PIPELINE_GIT_REVISION"'));
+
+  assert.ok(publish.includes('"$PIPELINE_CONFIG_SHA" != "$PIPELINE_GIT_REVISION"'));
+  assert.ok(publish.includes('"$mirror_sha" != "$PIPELINE_GIT_REVISION"'));
 });
 
 test('records a fail-closed publish or byte-identical no-op decision', () => {
