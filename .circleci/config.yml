@@ -52,28 +52,51 @@ jobs:
       # Reviewed Fabsbags/starreview-agent main commit used for the consumer
       # contract test. Update this full SHA in a reviewed pull request.
       CLI_SHA: "2317d5d95dccf29ba1e616fb98742a91879e76f4"
+      PIPELINE_REPO_URL: << pipeline.git.repo_url >>
+      PIPELINE_CONFIG_REPOSITORY: << pipeline.config.repository.name >>
+      PIPELINE_CONFIG_REF: << pipeline.config.ref >>
+      PIPELINE_CONFIG_SHA: << pipeline.config.sha >>
+      PIPELINE_GIT_BRANCH: << pipeline.git.branch >>
+      PIPELINE_GIT_REVISION: << pipeline.git.revision >>
+      PIPELINE_EVENT_NAME: << pipeline.event.name >>
     steps:
       - checkout
       - run:
-          name: Guard repository and exact current main commit
+          name: Guard GitHub App pipeline identity and exact current main commit
           command: |
             set -euo pipefail
 
-            if [[ "${CIRCLE_PROJECT_USERNAME:-}/${CIRCLE_PROJECT_REPONAME:-}" != "Fabsbags/starreview-mcp" ]]; then
+            if [[ "$PIPELINE_REPO_URL" != "https://github.com/Fabsbags/starreview-mcp" ]]; then
               echo "Refusing release candidate outside Fabsbags/starreview-mcp."
               exit 1
             fi
-            if [[ "${CIRCLE_BRANCH:-}" != "main" || -n "${CIRCLE_TAG:-}" ]]; then
-              echo "Refusing release candidate outside the main branch."
+            if [[ "$PIPELINE_CONFIG_REPOSITORY" != "Fabsbags/starreview-mcp" ]]; then
+              echo "Refusing a config sourced outside Fabsbags/starreview-mcp."
               exit 1
             fi
-            if [[ ! "${CIRCLE_SHA1:-}" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "CIRCLE_SHA1 must be a full lowercase commit SHA."
+            if [[ "$PIPELINE_CONFIG_REF" != "refs/heads/main" || "$PIPELINE_GIT_BRANCH" != "main" ]]; then
+              echo "Refusing release candidate outside the main branch and main config ref."
+              exit 1
+            fi
+            if [[ "$PIPELINE_EVENT_NAME" != "push" ]]; then
+              echo "Refusing a release candidate not triggered by a Git push."
+              exit 1
+            fi
+            if [[ ! "$PIPELINE_CONFIG_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "pipeline.config.sha must be a full lowercase commit SHA."
+              exit 1
+            fi
+            if [[ ! "$PIPELINE_GIT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "pipeline.git.revision must be a full lowercase commit SHA."
+              exit 1
+            fi
+            if [[ "$PIPELINE_CONFIG_SHA" != "$PIPELINE_GIT_REVISION" ]]; then
+              echo "Config SHA and checkout revision must identify the same reviewed commit."
               exit 1
             fi
             actual_sha="$(git rev-parse HEAD)"
-            if [[ "$actual_sha" != "$CIRCLE_SHA1" ]]; then
-              echo "Checkout mismatch: expected $CIRCLE_SHA1, got $actual_sha."
+            if [[ "$actual_sha" != "$PIPELINE_GIT_REVISION" ]]; then
+              echo "Checkout does not match pipeline.git.revision."
               exit 1
             fi
 
@@ -87,8 +110,8 @@ jobs:
 
             git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
             remote_main_sha="$(git rev-parse refs/remotes/origin/main)"
-            if [[ "$remote_main_sha" != "$CIRCLE_SHA1" ]]; then
-              echo "Refusing stale main candidate: origin/main is $remote_main_sha, pipeline is $CIRCLE_SHA1."
+            if [[ "$remote_main_sha" != "$PIPELINE_GIT_REVISION" ]]; then
+              echo "Refusing stale main candidate: origin/main no longer equals the pipeline revision."
               exit 1
             fi
 
@@ -175,7 +198,7 @@ jobs:
             mv "$release_dir/$pack_output" "$release_dir/package.tgz"
 
             printf '%s\n' "$version" > "$release_dir/version.txt"
-            printf '%s\n' "$CIRCLE_SHA1" > "$release_dir/mirror-sha.txt"
+            printf '%s\n' "$PIPELINE_GIT_REVISION" > "$release_dir/mirror-sha.txt"
             (
               cd "$release_dir"
               sha256sum package.tgz > package.tgz.sha256
@@ -333,6 +356,14 @@ jobs:
 
   publish:
     executor: release_node
+    environment:
+      PIPELINE_REPO_URL: << pipeline.git.repo_url >>
+      PIPELINE_CONFIG_REPOSITORY: << pipeline.config.repository.name >>
+      PIPELINE_CONFIG_REF: << pipeline.config.ref >>
+      PIPELINE_CONFIG_SHA: << pipeline.config.sha >>
+      PIPELINE_GIT_BRANCH: << pipeline.git.branch >>
+      PIPELINE_GIT_REVISION: << pipeline.git.revision >>
+      PIPELINE_EVENT_NAME: << pipeline.event.name >>
     steps:
       # Deliberately no checkout: this job must never execute repository or CLI
       # code. The protected context is attached only to this job in the workflow.
@@ -408,12 +439,36 @@ jobs:
             version="$(cat "$release_dir/version.txt")"
             mirror_sha="$(cat "$release_dir/mirror-sha.txt")"
 
-            if [[ "${CIRCLE_BRANCH:-}" != "main" || -n "${CIRCLE_TAG:-}" ]]; then
-              echo "Refusing trusted publish outside the main branch."
+            if [[ "$PIPELINE_REPO_URL" != "https://github.com/Fabsbags/starreview-mcp" ]]; then
+              echo "Refusing trusted publish outside Fabsbags/starreview-mcp."
               exit 1
             fi
-            if [[ "${CIRCLE_PROJECT_USERNAME:-}/${CIRCLE_PROJECT_REPONAME:-}" != "Fabsbags/starreview-mcp" ]]; then
-              echo "Refusing trusted publish outside Fabsbags/starreview-mcp."
+            if [[ "$PIPELINE_CONFIG_REPOSITORY" != "Fabsbags/starreview-mcp" ]]; then
+              echo "Refusing a config sourced outside Fabsbags/starreview-mcp."
+              exit 1
+            fi
+            if [[ "$PIPELINE_CONFIG_REF" != "refs/heads/main" || "$PIPELINE_GIT_BRANCH" != "main" ]]; then
+              echo "Refusing trusted publish outside the main branch and main config ref."
+              exit 1
+            fi
+            if [[ "$PIPELINE_EVENT_NAME" != "push" ]]; then
+              echo "Refusing trusted publish outside a Git push pipeline."
+              exit 1
+            fi
+            if [[ ! "$PIPELINE_CONFIG_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "pipeline.config.sha must be a full lowercase commit SHA."
+              exit 1
+            fi
+            if [[ ! "$PIPELINE_GIT_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "pipeline.git.revision must be a full lowercase commit SHA."
+              exit 1
+            fi
+            if [[ "$PIPELINE_CONFIG_SHA" != "$PIPELINE_GIT_REVISION" ]]; then
+              echo "Config SHA and checkout revision must identify the same reviewed commit."
+              exit 1
+            fi
+            if [[ "$mirror_sha" != "$PIPELINE_GIT_REVISION" ]]; then
+              echo "Candidate artifact does not match pipeline.git.revision."
               exit 1
             fi
 
